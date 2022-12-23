@@ -91,6 +91,7 @@ func Append[T List | Tuple](l T, v Atom) T {
 	return T(append(l, v))
 }
 
+// Math or logic operators
 func isOp(tok rune) bool {
 	return strings.Contains("<>!=&|+-/*%^", string(tok))
 }

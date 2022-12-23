@@ -1,0 +1,10 @@
+[
+    [[(x y f)
+      [$x $y <] [
+        $x $f eval
+        $x 1 + $y $f count
+      ] if
+    ] 'count def]
+
+    [0 15 [print "\n" print] count]
+]

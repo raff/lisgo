@@ -87,8 +87,19 @@ func (a Tuple) String() string {
 }
 
 // List or Tuple
-func Append[T List | Tuple](l T, v Atom) T {
+func Push[T List | Tuple](l T, v Atom) T {
 	return T(append(l, v))
+}
+
+func Pop[T List | Tuple](l T) (Atom, T) {
+	ll := len(l)
+
+	if ll == 0 {
+		panic("nothing to pop")
+	}
+
+	v, l := l[ll-1], l[:ll-1]
+	return v, l
 }
 
 // Math or logic operators
@@ -107,11 +118,16 @@ func parseArray[T List | Tuple](tok, exp rune, scan *scanner.Scanner) (Atom, err
 
 	list := T{}
 	varmark := false
+	qmark := false
 
 loop:
 	for tok = scan.Scan(); tok != scanner.EOF; tok = scan.Scan() {
-		if varmark && tok != scanner.Ident {
-			return nil, ErrSyntax(scan, tok)
+		if tok != scanner.Ident {
+			if varmark {
+				return nil, ErrSyntax(scan, tok)
+			} else if qmark {
+				return nil, ErrSyntax(scan, tok)
+			}
 		}
 
 		switch tok {
@@ -129,7 +145,7 @@ loop:
 				return nil, err
 			}
 
-			list = Append[T](list, l)
+			list = Push[T](list, l)
 
 		case ']', ')':
 			if exp == '[' && tok == ']' {
@@ -143,26 +159,33 @@ loop:
 		case '$': // use of variable marker
 			varmark = true
 
+		case '\'': // use of symbol marker
+			qmark = true
+
 		case scanner.Ident:
 			var a Atom
 
 			if varmark {
 				a = Var(scan.TokenText())
 				varmark = false
+			} else if qmark {
+				a = Symbol(scan.TokenText())
+				qmark = false
 			} else {
+				// here we should actually try to execute this
 				a = Symbol(scan.TokenText())
 			}
-			list = Append(list, a)
+			list = Push(list, a)
 
 		case scanner.String:
-			list = Append(list, String(scan.TokenText()))
+			list = Push(list, String(scan.TokenText()))
 
 		case scanner.Int, scanner.Float:
-			list = Append(list, ParseNumber(scan.TokenText()))
+			list = Push(list, ParseNumber(scan.TokenText()))
 
 		default:
 			if isOp(tok) {
-				list = Append(list, String(scan.TokenText()))
+				list = Push(list, String(scan.TokenText()))
 				continue
 			}
 

@@ -107,21 +107,14 @@ func isOp(tok rune) bool {
 	return strings.Contains("<>!=&|+-/*%^", string(tok))
 }
 
-func parseArray[T List | Tuple](tok, exp rune, scan *scanner.Scanner) (Atom, error) {
-	if tok != exp {
-		atype := "list"
-		if exp == '(' {
-			atype = "tuple"
-		}
-		return nil, ErrNoArray(atype, scan)
-	}
-
+func parseArray[T List | Tuple](scan *scanner.Scanner) (Atom, error) {
 	list := T{}
+	isTuple := Atom(list).Type() == TupleType
 	varmark := false
 	qmark := false
 
 loop:
-	for tok = scan.Scan(); tok != scanner.EOF; tok = scan.Scan() {
+	for tok := scan.Scan(); tok != scanner.EOF; tok = scan.Scan() {
 		if tok != scanner.Ident {
 			if varmark {
 				return nil, ErrSyntax(scan, tok)
@@ -136,9 +129,9 @@ loop:
 			var err error
 
 			if tok == '[' {
-				l, err = parseArray[List](tok, '[', scan)
+				l, err = parseArray[List](scan)
 			} else {
-				l, err = parseArray[Tuple](tok, '(', scan)
+				l, err = parseArray[Tuple](scan)
 			}
 
 			if err != nil {
@@ -148,10 +141,10 @@ loop:
 			list = Push[T](list, l)
 
 		case ']', ')':
-			if exp == '[' && tok == ']' {
+			if !isTuple && tok == ']' {
 				break loop
 			}
-			if exp == '(' && tok == ')' {
+			if isTuple && tok == ')' {
 				break loop
 			}
 			return nil, ErrSyntax(scan, tok)
@@ -202,7 +195,7 @@ func parse(r io.Reader) (Atom, error) {
 	scan.Init(r)
 	scan.Mode = scanner.ScanIdents | scanner.ScanInts | scanner.ScanFloats | scanner.ScanStrings
 
-	return parseArray[List](scan.Next(), '[', &scan)
+	return parseArray[List](&scan)
 }
 
 func main() {

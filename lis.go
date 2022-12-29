@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -26,9 +27,35 @@ const (
 	StringType
 	NumberType
 	FunctionType
+	ExecType
 	TupleType
 	ListType
 )
+
+func TypeString(t AtomType) string {
+	switch t {
+	case NilType:
+		return "NIL"
+	case SymbolType:
+		return "SYMBOL"
+	case VarType:
+		return "VAR"
+	case StringType:
+		return "STRING"
+	case NumberType:
+		return "NUMBER"
+	case FunctionType:
+		return "FUNCTION"
+	case ExecType:
+		return "EXEC"
+	case TupleType:
+		return "TUPLE"
+	case ListType:
+		return "LIST"
+	}
+
+	return "UNKNOWN"
+}
 
 type Atom interface {
 	Type() AtomType
@@ -47,6 +74,12 @@ type Symbol string
 func (a Symbol) Type() AtomType { return SymbolType }
 func (a Symbol) Value() any     { return string(a) }
 func (a Symbol) String() string { return string(a) }
+
+type Exec string
+
+func (a Exec) Type() AtomType { return ExecType }
+func (a Exec) Value() any     { return string(a) }
+func (a Exec) String() string { return string(a) }
 
 type Var string
 
@@ -166,7 +199,7 @@ loop:
 				qmark = false
 			} else {
 				// here we should actually try to execute this
-				a = Symbol(scan.TokenText())
+				a = Exec(scan.TokenText())
 			}
 			list = Push(list, a)
 
@@ -178,7 +211,7 @@ loop:
 
 		default:
 			if isOp(tok) {
-				list = Push(list, String(scan.TokenText()))
+				list = Push(list, Exec(scan.TokenText()))
 				continue
 			}
 
@@ -198,10 +231,28 @@ func parse(r io.Reader) (Atom, error) {
 	return parseArray[List](&scan)
 }
 
+func walk(v Atom, indent string) {
+	if l, ok := v.(List); ok {
+		fmt.Println(indent, "LIST")
+		for _, v := range l {
+			walk(v, indent+" ")
+		}
+
+		return
+	}
+
+	fmt.Println(indent, TypeString(v.Type()), v)
+}
+
 func main() {
+	verbose := flag.Bool("v", false, "verbose")
+	flag.Parse()
+
 	list, err := parse(os.Stdin)
 	if err != nil {
 		fmt.Println("ERROR:", err)
+	} else if *verbose {
+		walk(list, "")
 	} else {
 		fmt.Println(list)
 	}

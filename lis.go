@@ -26,7 +26,7 @@ const (
 	VarType
 	StringType
 	NumberType
-	FunctionType
+	BoolType
 	ExecType
 	TupleType
 	ListType
@@ -44,8 +44,8 @@ func TypeString(t AtomType) string {
 		return "STRING"
 	case NumberType:
 		return "NUMBER"
-	case FunctionType:
-		return "FUNCTION"
+	case BoolType:
+		return "BOOLEAN"
 	case ExecType:
 		return "EXEC"
 	case TupleType:
@@ -81,6 +81,11 @@ func (a Exec) Type() AtomType { return ExecType }
 func (a Exec) Value() any     { return string(a) }
 func (a Exec) String() string { return string(a) }
 
+func (a Exec) isOp() bool {
+	v := string(a)
+	return len(v) == 1 && isOp(rune(v[0]))
+}
+
 type Var string
 
 func (a Var) Type() AtomType { return VarType }
@@ -97,6 +102,12 @@ func ParseNumber(s string) Number {
 	n, _ := strconv.ParseFloat(s, 64)
 	return Number(n)
 }
+
+type Bool bool
+
+func (a Bool) Type() AtomType { return BoolType }
+func (a Bool) Value() any     { return bool(a) }
+func (a Bool) String() string { return strconv.FormatBool(bool(a)) }
 
 type String string
 
@@ -133,6 +144,93 @@ func Pop[T List | Tuple](l T) (Atom, T) {
 
 	v, l := l[ll-1], l[:ll-1]
 	return v, l
+}
+
+func Peek[T List | Tuple](l T) Atom {
+	ll := len(l)
+
+	if ll == 0 {
+		return Nil{}
+	}
+
+	return l[ll-1]
+}
+
+type Native func(stack List) (Atom, List)
+
+type Function struct {
+	args   Tuple
+	code   List
+	native Native
+}
+
+type Context struct {
+	prog      List
+	stack     List
+	functions map[string]Function
+	vars      map[string]Atom
+}
+
+var (
+	operators = map[string]Function{
+		"+": Function{
+			native: func(stack List) (Atom, List) {
+				var a, b Atom
+				var res float64
+
+				a, stack = Pop(stack)
+				b, stack = Pop(stack)
+
+				if n, ok := a.(Number); ok {
+					res = n.Value().(float64)
+				}
+
+				if n, ok := b.(Number); ok {
+					res += n.Value().(float64)
+				}
+
+				return Number(res), stack
+			},
+		},
+		"-": Function{
+			native: func(stack List) (Atom, List) {
+				var a, b Atom
+				var res float64
+
+				a, stack = Pop(stack)
+				b, stack = Pop(stack)
+
+				if n, ok := a.(Number); ok {
+					res = n.Value().(float64)
+				}
+
+				if n, ok := b.(Number); ok {
+					res -= n.Value().(float64)
+				}
+
+				return Number(res), stack
+			},
+		},
+		"*":  Function{},
+		"/":  Function{},
+		"+=": Function{},
+		"-=": Function{},
+		"*=": Function{},
+		"/=": Function{},
+	}
+)
+
+func (c *Context) Run() Atom {
+	for _, a := range c.prog {
+		switch a.Type() {
+		case ExecType:
+
+		default:
+			c.stack = Push(c.stack, a)
+		}
+	}
+
+	return Peek(c.stack)
 }
 
 // Math or logic operators
@@ -191,15 +289,24 @@ loop:
 		case scanner.Ident:
 			var a Atom
 
+			token := scan.TokenText()
+
 			if varmark {
-				a = Var(scan.TokenText())
+				a = Var(token)
 				varmark = false
 			} else if qmark {
-				a = Symbol(scan.TokenText())
+				a = Symbol(token)
 				qmark = false
 			} else {
 				// here we should actually try to execute this
-				a = Exec(scan.TokenText())
+				switch token {
+				case "true":
+					a = Bool(true)
+				case "false":
+					a = Bool(false)
+				default:
+					a = Exec(token)
+				}
 			}
 			list = Push(list, a)
 
@@ -211,7 +318,16 @@ loop:
 
 		default:
 			if isOp(tok) {
-				list = Push(list, Exec(scan.TokenText()))
+				v := scan.TokenText()
+				if v[0] == '=' {
+					prev := Peek(list)
+					if prev.Type() == ExecType && prev.(Exec).isOp() {
+						_, list = Pop(list)
+						v = prev.String() + v
+					}
+				}
+
+				list = Push(list, Exec(v))
 				continue
 			}
 
@@ -222,7 +338,7 @@ loop:
 	return Atom(list), nil
 }
 
-func parse(r io.Reader) (Atom, error) {
+func Parse(r io.Reader) (Atom, error) {
 	var scan scanner.Scanner
 
 	scan.Init(r)
@@ -248,7 +364,7 @@ func main() {
 	verbose := flag.Bool("v", false, "verbose")
 	flag.Parse()
 
-	list, err := parse(os.Stdin)
+	list, err := Parse(os.Stdin)
 	if err != nil {
 		fmt.Println("ERROR:", err)
 	} else if *verbose {

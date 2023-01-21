@@ -171,6 +171,27 @@ type Context struct {
 	vars      map[string]Atom
 }
 
+func (c *Context) Program() List {
+	return c.prog
+}
+
+func (c *Context) String() string {
+	return c.prog.String()
+}
+
+func (c *Context) Run() Atom {
+	for _, a := range c.prog {
+		switch a.Type() {
+		case ExecType:
+
+		default:
+			c.stack = Push(c.stack, a)
+		}
+	}
+
+	return Peek(c.stack)
+}
+
 var (
 	operators = map[string]Function{
 		"+": Function{
@@ -219,19 +240,6 @@ var (
 		"/=": Function{},
 	}
 )
-
-func (c *Context) Run() Atom {
-	for _, a := range c.prog {
-		switch a.Type() {
-		case ExecType:
-
-		default:
-			c.stack = Push(c.stack, a)
-		}
-	}
-
-	return Peek(c.stack)
-}
 
 // Math or logic operators
 func isOp(tok rune) bool {
@@ -338,13 +346,25 @@ loop:
 	return Atom(list), nil
 }
 
-func Parse(r io.Reader) (Atom, error) {
+func Parse(r io.Reader) (*Context, error) {
 	var scan scanner.Scanner
+	var ctx Context
 
 	scan.Init(r)
 	scan.Mode = scanner.ScanIdents | scanner.ScanInts | scanner.ScanFloats | scanner.ScanStrings
 
-	return parseArray[List](&scan)
+	prog, err := parseArray[List](&scan)
+	if err == nil {
+		if prog.Type() == ListType {
+			ctx.prog = prog.(List)
+		} else {
+			ctx.prog = Push(ctx.prog, prog)
+		}
+
+		return &ctx, nil
+	}
+
+	return nil, err
 }
 
 func walk(v Atom, indent string) {
@@ -364,12 +384,12 @@ func main() {
 	verbose := flag.Bool("v", false, "verbose")
 	flag.Parse()
 
-	list, err := Parse(os.Stdin)
+	ctx, err := Parse(os.Stdin)
 	if err != nil {
 		fmt.Println("ERROR:", err)
 	} else if *verbose {
-		walk(list, "")
+		walk(ctx.Program(), "")
 	} else {
-		fmt.Println(list)
+		fmt.Println(ctx.Program())
 	}
 }

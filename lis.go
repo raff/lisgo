@@ -10,7 +10,7 @@ import (
 	"text/scanner"
 )
 
-func ErrNoArray(atype string, scan *scanner.Scanner) error {
+func ErrBadType(scan *scanner.Scanner, atype AtomType) error {
 	return fmt.Errorf("expected %v at %v", atype, scan.Pos())
 }
 
@@ -18,7 +18,15 @@ func ErrSyntax(scan *scanner.Scanner, tok rune) error {
 	return fmt.Errorf("unexpected token %q at %v", string(tok), scan.Pos())
 }
 
+func ErrAt(scan *scanner.Scanner, msg string) error {
+	return fmt.Errorf("%v at %v", msg, scan.Pos())
+}
+
 type AtomType int
+
+func (t AtomType) String() string {
+	return TypeString(t)
+}
 
 const (
 	NilType AtomType = iota
@@ -146,6 +154,10 @@ func Pop[T List | Tuple](l T) (Atom, T) {
 	return v, l
 }
 
+func Len[T List | Tuple](l T) int {
+	return len(l)
+}
+
 func Peek[T List | Tuple](l T) Atom {
 	ll := len(l)
 
@@ -156,9 +168,30 @@ func Peek[T List | Tuple](l T) Atom {
 	return l[ll-1]
 }
 
+func PeekAt[T List | Tuple](l T, i int) Atom {
+	ll := len(l)
+
+	if ll <= i {
+		return Nil{}
+	}
+
+	return l[ll-i-1]
+}
+
+func At[T List | Tuple](l T, i int) Atom {
+	ll := len(l)
+
+	if i < 0 || i > ll-1 {
+		return Nil{}
+	}
+
+	return l[i]
+}
+
 type Native func(stack List) (Atom, List)
 
 type Function struct {
+	name   Symbol
 	args   Tuple
 	code   List
 	native Native
@@ -246,7 +279,39 @@ func isOp(tok rune) bool {
 	return strings.Contains("<>!=&|+-/*%^", string(tok))
 }
 
-func parseArray[T List | Tuple](scan *scanner.Scanner) (Atom, error) {
+func parseDef[T List | Tuple](prog T, scan *scanner.Scanner) (Function, T, error) {
+	if len(prog) < 2 {
+		return Function{}, nil, ErrAt(scan, "not enough arguments for def")
+	}
+
+	if PeekAt(prog, 0).Type() != SymbolType {
+		return Function{}, nil, ErrAt(scan, "expected symbol")
+	}
+
+	if PeekAt(prog, 1).Type() != ListType {
+		return Function{}, nil, ErrAt(scan, "expected list")
+	}
+
+	var v Atom
+
+	v, prog = Pop(prog)
+	sym := v.(Symbol)
+
+	v, prog = Pop(prog)
+	lis := v.(List)
+
+	var args Tuple
+
+	if At(lis, 0).Type() == TupleType {
+		v, lis = At(lis, 0), lis[1:]
+		args = v.(Tuple)
+	}
+
+	ff := Function{name: sym, args: args, code: lis}
+	return ff, prog, nil
+}
+
+func parseArray[T List | Tuple](scan *scanner.Scanner, c *Context) (Atom, error) {
 	list := T{}
 	isTuple := Atom(list).Type() == TupleType
 	varmark := false
@@ -268,9 +333,9 @@ loop:
 			var err error
 
 			if tok == '[' {
-				l, err = parseArray[List](scan)
+				l, err = parseArray[List](scan, c)
 			} else {
-				l, err = parseArray[Tuple](scan)
+				l, err = parseArray[Tuple](scan, c)
 			}
 
 			if err != nil {
@@ -312,6 +377,14 @@ loop:
 					a = Bool(true)
 				case "false":
 					a = Bool(false)
+				case "def":
+					f, ll, err := parseDef(list, scan)
+					if err != nil {
+						return nil, err
+					}
+					c.functions[f.name.String()] = f
+					list = ll
+					continue
 				default:
 					a = Exec(token)
 				}
@@ -348,12 +421,12 @@ loop:
 
 func Parse(r io.Reader) (*Context, error) {
 	var scan scanner.Scanner
-	var ctx Context
+	var ctx Context = Context{functions: map[string]Function{}, vars: map[string]Atom{}}
 
 	scan.Init(r)
 	scan.Mode = scanner.ScanIdents | scanner.ScanInts | scanner.ScanFloats | scanner.ScanStrings
 
-	prog, err := parseArray[List](&scan)
+	prog, err := parseArray[List](&scan, &ctx)
 	if err == nil {
 		if prog.Type() == ListType {
 			ctx.prog = prog.(List)
@@ -382,11 +455,18 @@ func walk(v Atom, indent string) {
 
 func main() {
 	verbose := flag.Bool("v", false, "verbose")
+	peek := flag.Int("peek", -1, "if >= 0, peek value from list")
 	flag.Parse()
 
 	ctx, err := Parse(os.Stdin)
 	if err != nil {
 		fmt.Println("ERROR:", err)
+		return
+	}
+
+	l := ctx.Program()
+	if *peek >= 0 {
+		fmt.Println("PEEK", *peek, ":", PeekAt(l, *peek))
 	} else if *verbose {
 		walk(ctx.Program(), "")
 	} else {

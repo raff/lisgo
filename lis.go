@@ -453,6 +453,14 @@ func walk(v Atom, indent string) {
 	fmt.Println(indent, TypeString(v.Type()), v)
 }
 
+func dump(v Atom, verbose bool) {
+	if verbose {
+		walk(v, "")
+	} else {
+		fmt.Println("", v)
+	}
+}
+
 func main() {
 	verbose := flag.Bool("v", false, "verbose")
 	peek := flag.Int("peek", -1, "if >= 0, peek value from list")
@@ -467,9 +475,25 @@ func main() {
 	l := ctx.Program()
 	if *peek >= 0 {
 		fmt.Println("PEEK", *peek, ":", PeekAt(l, *peek))
-	} else if *verbose {
-		walk(ctx.Program(), "")
 	} else {
-		fmt.Println(ctx.Program())
+		for k, v := range ctx.functions {
+			fmt.Println("function", k)
+			if v.args != nil {
+				fmt.Println("args:")
+				fmt.Println("", v.args)
+			}
+
+			fmt.Println("code:")
+			if v.native != nil {
+				fmt.Println("", "<native>")
+			} else {
+				dump(v.code, *verbose)
+			}
+		}
+
+		fmt.Println()
+		fmt.Println("main")
+
+		dump(ctx.Program(), *verbose)
 	}
 }
